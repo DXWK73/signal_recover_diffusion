@@ -7,7 +7,7 @@ import torch
 from diffusers import DDIMScheduler
 
 from models.simple_net.model import SGR
-from utils import signal_postprocess, signal_save, signal_show
+from utils import signal_postprocess, signal_save_to_img, signal_save_to_txt
 
 """
     Inference for signal recovery model.
@@ -48,8 +48,8 @@ def infer(
             xt = scheduler.step(model_output=pred, timestep=t[0]-1, sample=xt, return_dict=False)[0]
 
         signal = signal_postprocess(xt)[0]
-        signal_show(signal)
-        signal_save(signal, "assets/generate_signal.txt")
+        signal_save_to_img(signal, "examples/generate_signal.png")
+        signal_save_to_txt(signal, "examples/generate_signal.txt")
 
 if __name__ == '__main__':
     arg = argparse.ArgumentParser()

@@ -1,0 +1,5 @@
+{
+  "model_type": "VAE",
+  "in_channels": 1,
+  "hidden_channels": 16
+}

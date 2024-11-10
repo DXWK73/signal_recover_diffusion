@@ -1,4 +1,3 @@
-import argparse
 import os
 import random
 import pandas as pd
@@ -7,11 +6,11 @@ os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 import torch
 from torch.utils.data import DataLoader
-from diffusers import DDIMScheduler
+from diffusers import *
 
 from dataset import DatasetSG
-from models.simple_net.model import SGR
-from utils import normize, signal_show, signal_postprocess
+from models.simple_net.model import DiT
+from utils import normize
 
 """
     Train for signal recovery model.
@@ -41,18 +40,19 @@ def train(
         None
     """
 
-    data_normalize = normize(1000, 0.5, 0.5)
+    data_normalize = normize(10, 0, 1)
 
     train_dataset = DatasetSG(root_dir=train_data, transformer=data_normalize)
     train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=False)
 
-    model = SGR.from_pretrained("ckpt/sgr").to(device)
-    scheduler = DDIMScheduler.from_pretrained("models/scheduler")
-    scheduler.set_timesteps(1000, device)
+    model = DiT.from_pretrained("ckpt/sgr").to(device)
+    # vae = VAE.from_pretrained("ckpt/vae").to(device)
+    scheduler = PNDMScheduler.from_pretrained("models/scheduler")
+    scheduler.set_timesteps(999, device)
 
     Loss = torch.nn.MSELoss()
     opt = torch.optim.Adam(model.parameters(), lr=lr)
-    opt_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs // 2, eta_min=1e-6)
+    opt_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs // 2, eta_min=1e-5)
 
     train_log = {
         "epoch": [],
@@ -67,13 +67,15 @@ def train(
             t = scheduler.timesteps[t_idx].unsqueeze(0).repeat(b)
 
             # TODO: Unsure whether need signal sample?
+            # sigs = sigs[:, ::10, :]
+            # latents, _, _ = vae.encoder(sigs)
 
-            noise = torch.rand_like(sigs)
+            noise = torch.randn_like(sigs)
             sigs, noise = sigs.to(device), noise.to(device)
-            sigs_noised = scheduler.add_noise(sigs, noise, t-1)
+            sigs_noised = scheduler.add_noise(sigs, noise, t)
 
-            pred = model(sigs_noised, t-1)
-            loss = Loss(pred, sigs)
+            pred = model(sigs_noised, t)
+            loss = Loss(pred, noise)
             _loss += loss.item()
             opt.zero_grad()
             loss.backward()
@@ -83,7 +85,7 @@ def train(
         print(f"[{epoch}/{epochs}] loss={format(_loss/len(train_loader), '.4f')}")
         train_log["epoch"].append(epoch)
         train_log["loss"].append(_loss/len(train_loader))
-        torch.save(model.state_dict(), "ckpt/model.pth")
+        torch.save(model.state_dict(), "ckpt/sgr/model.pth")
 
         df = pd.DataFrame(train_log)
         df.to_csv("logs/train_log_0.3t.csv", index=False)
@@ -93,11 +95,11 @@ def train(
 
 if __name__ == '__main__':
     arg = argparse.ArgumentParser()
-    arg.add_argument("--train_data", type=str, default="data/2eval_data/", help="train data path")
+    arg.add_argument("--train_data", type=str, default="data/same_datas", help="train data path")
     arg.add_argument("--epochs", type=int, default=512, help="number of epochs")
-    arg.add_argument("--lr", type=float, default=1e-4, help="learning rate")
-    arg.add_argument("--batch_size", type=int, default=8, help="batch size")
+    arg.add_argument("--lr", type=float, default=1e-3, help="learning rate")
+    arg.add_argument("--batch_size", type=int, default=32, help="batch size")
     arg.add_argument("--device", type=str, default="cuda:1", help="device")
-    arg.add_argument("--stop_loss", type=float, default=0.0003, help="stop train loss")
+    arg.add_argument("--stop_loss", type=float, default=0.0001, help="stop train loss")
     args = arg.parse_args()
     train(**vars(args))
